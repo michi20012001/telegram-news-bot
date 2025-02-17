@@ -1,0 +1,76 @@
+
+import os
+import time
+import openai
+import requests
+from bs4 import BeautifulSoup
+from telegram import Bot
+from datetime import datetime
+
+# Configuración
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Configurar OpenAI
+openai.api_key = OPENAI_API_KEY
+
+# Lista de fuentes de noticias
+NEWS_SOURCES = [
+    "https://news.google.com/rss/search?q=cultura+arte+entretenimiento&hl=es&gl=ES&ceid=ES:es",
+    "https://elpais.com/cultura/rss.xml",
+    "https://www.abc.es/rss/feeds/abc_CulturaEsp.xml",
+    "https://www.lavanguardia.com/rss/cultura.xml",
+    "https://www.rtve.es/rss/cultura.xml",
+    "https://www.elmundo.es/elmundo/rss/cultura.xml"
+]
+
+# Función para obtener noticias
+def get_news():
+    all_news = []
+    
+    for source in NEWS_SOURCES:
+        response = requests.get(source)
+        soup = BeautifulSoup(response.content, 'xml')
+        articles = soup.find_all('item')[:5]  # Extraer solo las 5 primeras noticias de cada fuente
+        
+        for article in articles:
+            title = article.title.text
+            link = article.link.text
+            description = article.description.text if article.description else ""
+            all_news.append(f"{title}\n{description}\n{link}")
+    
+    return all_news[:10]  # Seleccionar las 10 mejores noticias
+
+# Función para resumir con ChatGPT
+def summarize_news(news_list):
+    prompt = """
+    Redacta un resumen breve (5-10 líneas) de las siguientes noticias culturales. Sé formal, amigable y entretenido. Incluye un TOP 10.
+    
+    """ + "\n".join(news_list)
+    
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    
+    return response["choices"][0]["message"]["content"]
+
+# Función para enviar el mensaje a Telegram
+def send_to_telegram(message):
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message, parse_mode="Markdown")
+
+# Función principal
+def main():
+    now = datetime.now()
+    if now.hour == 7:  # Solo ejecuta a las 7 AM
+        news = get_news()
+        summarized_news = summarize_news(news)
+        message = f"🌅 *¡Buenos días! Aquí tienes el TOP 10 de noticias culturales de hoy:*\n\n" + summarized_news
+        send_to_telegram(message)
+
+# Ejecutar cada 24 horas
+while True:
+    main()
+    time.sleep(86400)
